@@ -101,7 +101,6 @@ type KeyInfo struct {
 	LastTimestamp      int64
 	RetentionTime      int64
 	Rules              []Rule
-	Labels    		   map[string]string
 }
 
 func ParseRules(ruleInterface interface{}, err error) (rules []Rule, retErr error) {
@@ -157,8 +156,6 @@ func ParseInfo(result interface{}, err error) (info KeyInfo, outErr error) {
 			info.MaxSamplesPerChunk, err = redis.Int64(values[i+1], nil)
 		case "lastTimestamp":
 			info.LastTimestamp, err = redis.Int64(values[i+1], nil)
-		case "labels":
-			info.Labels, err = ParseLabels(values[i+1])
 		}
 		if err != nil {
 			return KeyInfo{}, err
@@ -295,7 +292,7 @@ type DataPoint struct {
 	Value     float64
 }
 
-func ParseDataPoints(info interface{}) (dataPoints []DataPoint, err error) {
+func parseDataPoints(info interface{}) (dataPoints []DataPoint, err error) {
 	values, err := redis.Values(info, err)
 	if err != nil {
 		return nil, err
@@ -327,39 +324,13 @@ func ParseDataPoints(info interface{}) (dataPoints []DataPoint, err error) {
 	return dataPoints, nil
 }
 
-func ParseLabels(res interface{}) (labels map[string]string, err error) {
-	values, err := redis.Values(res, err)
-	if err != nil {
-		return
-	}
-	labels = make(map[string]string, len(values))
-	for i := 0; i < len(values); i++ {
-		iValues, err := redis.Values(values[i], err)
-		if err != nil {
-			return nil, err
-		}
-		if len(iValues) != 2 {
-			err = errors.New("ParseLabels: expects 2 elements per inner-array")
-			return nil, err
-		}
-		key, okKey := iValues[0].([]byte)
-		value, okValue := iValues[1].([]byte)
-		if !okKey || !okValue {
-			err = errors.New("ParseLabels: StringMap key not a bulk string value")
-			return nil, err
-		}
-		labels[string(key)] = string(value)
-	}
-	return
-}
-
 type Range struct {
 	Name       string
 	Labels     map[string]string
 	DataPoints []DataPoint
 }
 
-func ParseRanges(info interface{}) (ranges []Range, err error) {
+func parseRanges(info interface{}) (ranges []Range, err error) {
 	values, err := redis.Values(info, err)
 	if err != nil {
 		return nil, err
@@ -372,27 +343,18 @@ func ParseRanges(info interface{}) (ranges []Range, err error) {
 		iValues, err := redis.Values(i, err)
 		if err != nil {
 			return nil, err
-		}
-		if len(iValues) != 3 {
-			err = errors.New("ParseRanges: expects 3 elements per inner-array")
-			return nil, err
-		}
-
+		}		
+		
 		name, err := redis.String(iValues[0], nil)
 		if err != nil {
 			return nil, err
 		}
-
-		labels, err := ParseLabels(iValues[1])
+		
+		dataPoints, err := parseDataPoints(iValues[2])
 		if err != nil {
 			return nil, err
 		}
-
-		dataPoints, err := ParseDataPoints(iValues[2])
-		if err != nil {
-			return nil, err
-		}
-		r := Range{ name, labels, dataPoints}
+		r := Range{ name, nil, dataPoints}
 		ranges = append(ranges, r)
 	}
 	return ranges, nil
@@ -412,7 +374,7 @@ func (client *Client) Range(key string, fromTimestamp int64, toTimestamp int64) 
 	if err != nil {
 		return nil, err
 	}
-	dataPoints, err = ParseDataPoints(info)
+	dataPoints, err = parseDataPoints(info)
 	return dataPoints, err
 }
 
@@ -432,7 +394,7 @@ func (client *Client) AggRange(key string, fromTimestamp int64, toTimestamp int6
 	if err != nil {
 		return nil, err
 	}
-	dataPoints, err = ParseDataPoints(info)
+	dataPoints, err = parseDataPoints(info)
 	return dataPoints, err
 }
 	
@@ -459,6 +421,6 @@ func (client *Client) AggMultiRange(fromTimestamp int64, toTimestamp int64, aggT
 	if err != nil {
 		return nil, err
 	}
-	ranges, err = ParseRanges(info)
+	ranges, err = parseRanges(info)
 	return ranges, err
 }
